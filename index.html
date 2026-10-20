@@ -1,0 +1,987 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AuctionInc — Property Map Generator</title>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@500;700;900&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --brand-red:#E11B22; --brand-red-dark:#B5151B;
+    --gold:#B8860B; --grey:#9AA4AB;
+    --road:#2f90db; --road-casing:#0d3f6b;
+    --ink:#16181B; --panel:#fff; --line:#e6e8eb;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{font-family:'Roboto',system-ui,sans-serif;font-weight:700;color:var(--ink);background:#f3f4f6;
+       display:grid;grid-template-columns:340px 1fr;height:100vh;overflow:hidden}
+
+  /* ---------- Control panel ---------- */
+  .panel{background:var(--panel);border-right:1px solid var(--line);padding:18px 18px 26px;overflow-y:auto}
+  .brand{font-weight:900;font-size:21px;letter-spacing:.4px;text-transform:uppercase;display:flex;align-items:center;gap:9px;margin:0 0 2px}
+  .brand .dot{width:30px;height:30px;background-image:url("AuctionInc.png");background-size:contain;background-repeat:no-repeat;background-position:center}
+  .tag{color:#6b7280;font-size:12.5px;margin:0 0 16px;font-weight:500}
+
+  label{display:block;font-weight:900;font-size:11.5px;margin:14px 0 5px;text-transform:uppercase;letter-spacing:.5px;color:#374151}
+  input[type=text], select{
+    width:100%;padding:9px 11px;border:1px solid #d1d5db;border-radius:8px;font-family:'Roboto';font-weight:700;font-size:14px;background:#fff}
+  .row{display:flex;gap:8px}.row>*{flex:1}
+  .banner-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+  button{font-family:'Roboto';font-weight:900;cursor:pointer;border:none;border-radius:8px}
+  .go{width:100%;margin-top:16px;padding:12px;background:var(--brand-red);color:#fff;font-size:16px;letter-spacing:.6px;text-transform:uppercase}
+  .go:hover{background:var(--brand-red-dark)}
+  .go:disabled{opacity:.55;cursor:wait}
+  .export{width:100%;margin-top:8px;padding:11px;background:#16181B;color:#fff;font-size:14px;text-transform:uppercase;letter-spacing:.5px}
+  .export:hover{background:#000}
+  .export:disabled{opacity:.55;cursor:wait}
+
+  #resolved{font-size:12px;color:#0b6;font-weight:700;margin-top:10px;line-height:1.4;display:none}
+  #geoResults{margin-top:8px}
+  #geoResults .ghint{font-size:11.5px;color:#b5151b;font-weight:900;text-transform:uppercase;letter-spacing:.3px;margin-bottom:6px}
+  .cand{display:block;width:100%;text-align:left;padding:8px 10px;margin-bottom:6px;background:#f3f4f6;border:1px solid #d1d5db;border-radius:7px;font-size:12px;font-weight:700;line-height:1.3;color:#16181B}
+  .cand:hover{background:#fff3f3;border-color:var(--brand-red)}
+
+  .poi-list{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+  .poi-list h3{text-transform:uppercase;font-size:12.5px;letter-spacing:.5px;margin:0 0 8px;color:#374151;font-weight:900}
+  .poi{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;font-weight:700}
+  .poi .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .poi .km{color:#9ca3af;font-size:11px;flex:0 0 auto;font-weight:500}
+  .hint{font-size:11.5px;color:#9ca3af;margin-top:8px;line-height:1.45;font-weight:500}
+  .status{font-size:12.5px;color:#374151;margin-top:10px;min-height:16px;font-weight:700;line-height:1.4}
+  .debug{font-size:11px;color:#6b7280;margin-top:6px;font-weight:500;line-height:1.4;white-space:pre-wrap}
+  .warn{color:#b5151b}
+
+  /* ---------- Map stage (preview) ---------- */
+  .stage{position:relative;overflow:hidden;background:#0b1f33}
+  #map{position:absolute;inset:0;background:#0b1f33}
+
+  .footer-banner{position:absolute;left:0;bottom:0;z-index:800;display:flex;font-weight:900;text-transform:uppercase;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+  .footer-banner .place{background:var(--brand-red);color:#fff;padding:8px 28px;font-size:40px;letter-spacing:1px;line-height:1}
+    .footer-banner .cat{background:var(--grey);color:#fff;padding:8px 28px;font-size:40px;letter-spacing:1px;line-height:1}
+
+    /* ---------- Map label markers (built from PNG assets) ---------- */
+    .leaflet-div-icon{background:transparent;border:none}
+    .lbl-wrap{position:absolute;will-change:transform}
+    .asset{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;pointer-events:none;display:block}
+
+    /* Landmark pin = Pin.png */
+    .pin-landmark{width:112px;height:116px;position:relative;filter:drop-shadow(0 4px 7px rgba(0,0,0,.5))}
+    /* Smaller, centred rectangular safe area inside the white circle, with padding.
+       Words may only wrap BETWEEN words (keep-all / overflow-wrap:normal) — never split. */
+    .pin-text{
+      position:absolute;left:20%;top:21%;width:60%;height:46%;
+      padding:2px 3px;box-sizing:border-box;
+      display:flex;align-items:center;justify-content:center;text-align:center;
+      color:var(--gold);font-weight:900;text-transform:uppercase;line-height:1.05;
+      overflow:hidden;white-space:normal;word-break:keep-all;overflow-wrap:normal;hyphens:none;z-index:2}
+
+    /* Property marker = AuctionInc.png */
+    .pin-property{width:104px;height:108px;position:relative;filter:drop-shadow(0 6px 10px rgba(0,0,0,.6))}
+
+    /* Highway shield = Main Road.png */
+    .shield{width:92px;height:92px;position:relative;display:flex;align-items:center;justify-content:center;filter:drop-shadow(0 4px 7px rgba(0,0,0,.5))}
+    .shield .stxt{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+      z-index:2;transform:translate(2px,2px);padding:0 11px;box-sizing:border-box}
+    .shield .l{color:rgb(237,229,0);font-weight:900;line-height:.84;letter-spacing:.5px}
+    .shield .n{color:rgb(237,229,0);font-weight:900;line-height:.84}
+    /* Single-line refs like N1 / M1 — letter and number together on one row */
+    .shield .combo{color:rgb(237,229,0);font-weight:900;line-height:.84;letter-spacing:.5px;white-space:nowrap}
+
+    /* Green street sign = Road Sign.png */
+    .road-sign{position:relative;display:flex;align-items:center;justify-content:center;
+      background-image:url("Road Sign.png");background-repeat:no-repeat;
+      background-position:50% 50%;background-size:100% 200px;
+      filter:drop-shadow(0 3px 6px rgba(0,0,0,.5))}
+    /* FIX 2: nudge label down so it sits centred inside the green plate */
+    .road-sign .t{position:relative;z-index:2;color:#fff;font-weight:900;text-transform:uppercase;
+      white-space:nowrap;letter-spacing:.5px;line-height:1;transform:translateY(3px)}
+
+    @media (max-width:760px){
+      body{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+      .footer-banner .place,.footer-banner .cat{font-size:24px;padding:6px 14px}
+    }
+  </style>
+  </head>
+  <body>
+
+    <aside class="panel">
+      <h1 class="brand"><span class="dot"></span> Map Generator</h1>
+      <p class="tag">Address in → premium AuctionInc location map out.</p>
+
+      <label for="addr">Property address or coordinates</label>
+      <input id="addr" type="text" placeholder="12 Oxford Road, Bedfordview   ·   or   -26.1821, 28.1320" />
+
+      <label>Footer banner</label>
+      <div class="banner-fields">
+        <input id="placeName" type="text" placeholder="SUBURB" />
+        <input id="category" type="text" placeholder="RESIDENTIAL" value="RESIDENTIAL" />
+      </div>
+
+      <div class="row" style="margin-top:14px">
+        <div>
+          <label for="radius">Search radius</label>
+          <select id="radius">
+            <option value="1200">1.2 km</option>
+            <option value="2000" selected>2 km</option>
+            <option value="3500">3.5 km</option>
+            <option value="6000">6 km</option>
+          </select>
+        </div>
+        <div>
+          <label for="zoom">Zoom</label>
+          <select id="zoom">
+            <option value="auto" selected>Auto</option>
+            <option value="14">Wide</option>
+            <option value="15">Medium</option>
+            <option value="16">Close</option>
+          </select>
+        </div>
+      </div>
+
+      <button id="go" class="go">Generate map</button>
+      <button id="exportBtn" class="export">Download PNG (4050×2250)</button>
+      <div id="status" class="status"></div>
+      <div id="debug" class="debug"></div>
+      <div id="resolved"></div>
+      <div id="geoResults"></div>
+
+      <div id="poiBox" class="poi-list" style="display:none">
+        <h3>Featured landmarks</h3>
+        <div id="poiList"></div>
+        <p class="hint">Tick / untick landmarks then press <b>Generate map</b> again to refine. Pins, signs and shields are drawn automatically in the AuctionInc house style.</p>
+      </div>
+
+      <p class="hint" style="margin-top:18px">
+        South-Africa-only geocoding, live road geometry, ranked landmarks, rotated street signs and N/M/R highway shields.
+        Output is a fixed <b>1620×900</b> design exported at <b>4050×2250</b>. Keep
+        <b>AuctionInc.png</b>, <b>Pin.png</b>, <b>Road&nbsp;Sign.png</b> and <b>Main&nbsp;Road.png</b> beside this file.
+      </p>
+    </aside>
+
+    <main class="stage">
+      <div id="map"></div>
+      <div class="footer-banner" id="footer" style="display:none">
+        <div class="place" id="fbPlace">SUBURB</div>
+        <div class="cat" id="fbCat">RESIDENTIAL</div>
+      </div>
+    </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dom-to-image-more/3.3.0/dom-to-image-more.min.js"></script>
+  <script>
+  const $ = id => document.getElementById(id);
+  const setStatus = t => { $('status').textContent = t; };
+  const setDebug  = (t,warn) => { const el=$('debug'); el.textContent=t; el.className='debug'+(warn?' warn':''); };
+  const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+  /* ---------------- Text measuring + asset readiness ---------------- */
+  const _measCanvas = document.createElement('canvas');
+  const _measCtx = _measCanvas.getContext('2d');
+  function measureTextWidth(text, fontPx){
+    _measCtx.font = `900 ${fontPx}px Roboto, Arial, sans-serif`;
+    return _measCtx.measureText(text).width;
+  }
+  function waitImages(root){
+    const imgs=[...root.querySelectorAll('img')];
+    return Promise.all(imgs.map(img =>
+      (img.complete && img.naturalWidth) ? Promise.resolve()
+      : new Promise(res=>{ img.onload=img.onerror=()=>res(); })
+    ));
+  }
+  if(document.fonts && document.fonts.load){ try{ document.fonts.load('900 23px Roboto'); }catch(e){} }
+
+  const TILE_URL='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+
+  /* ---------------- Preview map ---------------- */
+  const map = L.map('map', {
+    zoomControl:true, attributionControl:false, preferCanvas:true, zoomSnap:0.25
+  }).setView([-26.182, 28.132], 14);
+  L.tileLayer(TILE_URL,{ maxZoom:19, crossOrigin:'anonymous' }).addTo(map);
+  const layerGroup = L.layerGroup().addTo(map);
+
+  /* ---------------- State ---------------- */
+  let center = null;
+  let roads  = [];
+  let pois   = [];
+  let dirty  = true;
+  let currentZoom = 15;
+  const sessionCache = new Map();   // key -> resolved value
+
+  /* ---------------- Geometry helpers ---------------- */
+  function haversine(la1,lo1,la2,lo2){
+    const R=6371,d=x=>x*Math.PI/180;
+    const a=Math.sin(d(la2-la1)/2)**2+Math.cos(d(la1))*Math.cos(d(la2))*Math.sin(d(lo2-lo1)/2)**2;
+    return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+  }
+  function polylineLen(coords){
+    let s=0; for(let i=1;i<coords.length;i++) s+=haversine(coords[i-1].lat,coords[i-1].lng,coords[i].lat,coords[i].lng);
+    return s*1000;
+  }
+  function screenAngle(M,p1,p2){
+    const a=M.latLngToLayerPoint(p1), b=M.latLngToLayerPoint(p2);
+    let ang=Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;
+    if(ang>90) ang-=180; if(ang<-90) ang+=180;
+    return ang;
+  }
+
+  /* ---------------- Coordinate parsing (PRESERVED EXACTLY) ---------------- */
+  function parseCoords(q){
+    const m=q.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+    if(m) return { lat:+m[1], lon:+m[2] };
+    return null;
+  }
+
+  /* ---------------- South-Africa geocoding ---------------- */
+  async function geocodeZA(q){
+    let query=q;
+    if(!/south\s*africa/i.test(query)) query += ', South Africa';
+    const url=`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6&countrycodes=za&q=${encodeURIComponent(query)}`;
+    const r=await fetch(url,{headers:{'Accept-Language':'en'}});
+    const j=await r.json();
+    return Array.isArray(j)?j:[];
+  }
+  function rankCandidates(list,q){
+    const inp=q.toLowerCase();
+    const hn=(q.match(/^\s*(\d+)\b/)||[])[1]||'';
+    const street=q.replace(/^\s*\d+\s*/,'').split(',')[0].toLowerCase().trim();
+    list.forEach(c=>{
+      let s=0; const a=c.address||{};
+      if(hn && a.house_number && a.house_number===hn) s+=100;
+      const road=(a.road||'').toLowerCase();
+      if(street && road && (road===street||road.includes(street)||street.includes(road))) s+=50;
+      const sub=((a.suburb||a.neighbourhood||a.city_district||a.city||a.town||'')+'').toLowerCase();
+      if(sub && inp.includes(sub)) s+=20;
+      if(a.house_number) s+=5;
+      s += (parseFloat(c.importance||0))*8;
+      c.score=s;
+    });
+    return list.slice().sort((x,y)=>y.score-x.score);
+  }
+  function setResolved(text){ const el=$('resolved'); el.textContent='📍 '+text; el.style.display='block'; }
+  function showCandidates(list){
+    const box=$('geoResults'); box.innerHTML='';
+    const h=document.createElement('div'); h.className='ghint'; h.textContent='Multiple matches — choose the correct property:'; box.appendChild(h);
+    list.forEach(c=>{
+      const b=document.createElement('button'); b.className='cand'; b.textContent=c.display_name;
+      b.onclick=async()=>{
+        center={lat:+c.lat,lon:+c.lon}; setResolved(c.display_name); box.innerHTML=''; dirty=true; await runAfterGeo();
+      };
+      box.appendChild(b);
+    });
+  }
+
+  /* ---------------- Overpass (parallel race + per-request timeout + fallbacks) ---------------- */
+  const OVERPASS=[
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+    'https://overpass.openstreetmap.ru/api/interpreter'
+  ];
+  function fetchWithTimeout(url, opts, ms){
+    const ctrl = new AbortController();
+    const id = setTimeout(()=>ctrl.abort(new Error('timeout')), ms);
+    return fetch(url, {...opts, signal:ctrl.signal})
+      .finally(()=>clearTimeout(id));
+  }
+  /* Fire all endpoints in parallel; first valid JSON wins → fastest + resilient. */
+  async function overpass(query, timeoutMs=22000){
+    const attempts = OVERPASS.map(ep =>
+      fetchWithTimeout(ep, {method:'POST', body:query}, timeoutMs)
+        .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status+' @ '+ep); return r.json(); })
+    );
+    try{
+      return await Promise.any(attempts);
+    }catch(err){
+      // AggregateError when all fail
+      const msgs = err && err.errors ? err.errors.map(e=>e.message).join('; ') : (err.message||'all endpoints failed');
+      throw new Error(msgs);
+    }
+  }
+
+  /* ---------------- Roads ---------------- */
+  const MAIN_TYPES=new Set(['motorway','trunk','primary','secondary','motorway_link','trunk_link','primary_link']);
+  function wayToRoad(e){
+    if(!e.geometry||e.geometry.length<2) return null;
+    const coords=e.geometry.map(g=>L.latLng(g.lat,g.lon));
+    const type=e.tags.highway, name=e.tags.name||'', ref=(e.tags.ref||'').trim();
+    const isMain=MAIN_TYPES.has(type)||/^[NMR]\s*\d/i.test(ref);
+    const len=polylineLen(coords);
+    return {coords,type,name,ref,isMain,len,arterial:false};
+  }
+  async function fetchRoads(lat,lon,radius){
+    const q=`[out:json][timeout:25];
+    (way(around:${radius},${lat},${lon})
+       [highway~"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified|living_street|motorway_link|trunk_link|primary_link)$"];);
+    out geom;`;
+    const j=await overpass(q,25000);
+    const out=[];
+    (j.elements||[]).forEach(e=>{
+      const r=wayToRoad(e); if(!r) return;
+      if(!r.isMain && (r.type==='residential'||r.type==='unclassified'||r.type==='living_street') && r.len<200) return;
+      out.push(r);
+    });
+    return out;
+  }
+  async function fetchArterials(lat,lon,radius){
+    const r2=Math.round(radius*2.4);
+    const q=`[out:json][timeout:25];
+    (way(around:${r2},${lat},${lon})[highway~"^(motorway|trunk|primary)$"][ref];);
+    out geom;`;
+    const j=await overpass(q,22000);
+    const out=[];
+    (j.elements||[]).forEach(e=>{
+      const r=wayToRoad(e); if(!r) return;
+      if(!/^[NMR]\s*\d/i.test(r.ref)) return;
+      r.arterial=true; out.push(r);
+    });
+    return out;
+  }
+  function sig(r){
+    const a=r.coords[0], b=r.coords[r.coords.length-1];
+    return r.ref+'|'+a.lat.toFixed(4)+','+a.lng.toFixed(4)+'|'+b.lat.toFixed(4)+','+b.lng.toFixed(4);
+  }
+  function mergeArterials(art){
+    const seen=new Set(roads.map(sig));
+    art.forEach(r=>{ const s=sig(r); if(!seen.has(s)){ seen.add(s); roads.push(r);} });
+  }
+
+  /* ---------------- POIs (with debug + retry/expand) ---------------- */
+  const BAN=/police|fire\s|fire station|municipal|government|magistrate|\bcourt\b|prison|home affairs|sassa|licens|traffic department|depot|cemetery|graveyard/i;
+
+  /* Split the POI search into several LIGHT batches.
+     The old single query (6+ nwr statements + "out center 160") was heavy enough
+     that the good endpoints timed out, leaving only the failing ones → total fail.
+     Smaller batches respond faster and we tolerate partial failure. */
+  function poiBatchesNormal(radius,lat,lon){
+    return [
+      `nwr(around:${radius},${lat},${lon})[amenity~"^(school|college|university|hospital|clinic|marketplace|cinema|theatre|conference_centre|library)$"][name];`,
+      `nwr(around:${radius},${lat},${lon})[shop~"^(mall|supermarket|department_store)$"][name];
+       nwr(around:${radius},${lat},${lon})[leisure~"^(golf_course|park|stadium|sports_centre|marina|nature_reserve)$"][name];`,
+      `nwr(around:${radius},${lat},${lon})[tourism~"^(attraction|hotel|museum)$"][name];
+       nwr(around:${radius},${lat},${lon})[office=company][name];
+       nwr(around:${radius},${lat},${lon})[aeroway=aerodrome][name];`
+    ];
+  }
+  function poiBatchesBroad(radius,lat,lon){
+    // Broader net, still split so each request stays cheap.
+    return poiBatchesNormal(radius,lat,lon).concat([
+      `nwr(around:${radius},${lat},${lon})[amenity][name];`,
+      `nwr(around:${radius},${lat},${lon})[shop][name];`,
+      `nwr(around:${radius},${lat},${lon})[leisure][name];
+       nwr(around:${radius},${lat},${lon})[tourism][name];
+       nwr(around:${radius},${lat},${lon})[landuse~"^(retail|commercial)$"][name];`
+    ]);
+  }
+  function poiType(tags){
+    return tags.shop||tags.amenity||tags.leisure||tags.tourism||tags.office||tags.landuse||tags.aeroway||'';
+  }
+
+  /* One light batch → its own Overpass race, with a single quick retry. */
+  async function fetchPoiBatch(body, timeoutMs){
+    const q=`[out:json][timeout:25];(${body});out center 120;`;
+    try{
+      return await overpass(q, timeoutMs);
+    }catch(e){
+      // brief pause then one more try (endpoints recover / load balances)
+      await sleep(400);
+      return await overpass(q, timeoutMs);
+    }
+  }
+
+  async function fetchPois(lat,lon,radius,broad){
+    const batches = broad ? poiBatchesBroad(radius,lat,lon) : poiBatchesNormal(radius,lat,lon);
+
+    // Run batches in parallel but TOLERATE partial failure — any successful
+    // batch still yields landmarks instead of failing the whole POI fetch.
+    const settled = await Promise.allSettled(
+      batches.map(b => fetchPoiBatch(b, 35000))
+    );
+
+    let raw=[], okCount=0, failCount=0;
+    settled.forEach(s=>{
+      if(s.status==='fulfilled'){ okCount++; raw = raw.concat((s.value && s.value.elements) || []); }
+      else failCount++;
+    });
+
+    // Only a hard error if EVERY batch failed.
+    if(okCount===0){
+      const msg = settled.map(s=> s.status==='rejected' ? (s.reason && s.reason.message || 'fail') : '')
+                         .filter(Boolean).join('; ');
+      throw new Error(msg || 'all POI batches failed');
+    }
+
+    const seen=new Set();
+    let banned=0, noName=0, noGeo=0, dup=0;
+    const list = raw.map(e=>{
+      const tags=e.tags||{};
+      const name=(tags.name||'').trim();
+      if(!name || name.length<3){ noName++; return null; }
+      if(BAN.test(name)){ banned++; return null; }
+      const la=e.lat??(e.center&&e.center.lat), lo=e.lon??(e.center&&e.center.lon);
+      if(la==null||lo==null){ noGeo++; return null; }
+      const key=name.toLowerCase();
+      if(seen.has(key)){ dup++; return null; }
+      seen.add(key);
+      return {name,lat:la,lon:lo,dist:haversine(lat,lon,la,lo),type:poiType(tags)};
+    }).filter(Boolean);
+
+    return {list, raw:raw.length, banned, noName, noGeo, dup, broad:!!broad, radius,
+            partial: failCount>0 ? `${okCount}/${batches.length} batches ok` : ''};
+  }
+
+  async function fetchPoisSmart(lat,lon,radius){
+    // 1) Normal categories — never let a thrown error kill the whole pipeline.
+    let res=null;
+    try{ res = await fetchPois(lat,lon,radius,false); }
+    catch(e){ res=null; }
+
+    // 2) If normal failed entirely OR returned too few, try the broader/larger search.
+    if(!res || res.list.length < 4){
+      const r2=Math.round(radius*1.6);
+      try{
+        const res2 = await fetchPois(lat,lon,r2,true);
+        res2.expanded=true;
+        if(!res || res2.list.length > res.list.length) return res2;
+      }catch(e2){
+        if(!res) throw e2;   // both attempts failed → surface the error
+      }
+    }
+    return res;
+  }
+  function poiWeight(t){
+    const w={mall:10,department_store:8,supermarket:7,school:8,college:8,university:9,hospital:8,clinic:5,
+      golf_course:9,stadium:8,park:5,sports_centre:6,marina:8,hotel:6,attraction:6,aerodrome:8,
+      conference_centre:6,marketplace:5,cinema:5,theatre:5,company:5,retail:6,commercial:4,nature_reserve:6,
+      museum:6,library:5};
+    return w[t]||4;
+  }
+  function rankPois(list){
+    list.forEach(p=>{ p.score = poiWeight(p.type) - p.dist*1.15; });
+    return list.slice().sort((a,b)=>b.score-a.score).slice(0,16);
+  }
+
+  /* ---------------- Session cache wrapper ---------------- */
+  function cacheKey(type,lat,lon,radius){ return `${type}:${lat.toFixed(5)},${lon.toFixed(5)},${radius}`; }
+  async function cached(type,lat,lon,radius,fn){
+    const k=cacheKey(type,lat,lon,radius);
+    if(sessionCache.has(k)) return sessionCache.get(k);
+    const v=await fn();
+    sessionCache.set(k,v);
+    return v;
+  }
+
+  /* ---------------- POI list UI ---------------- */
+  function renderPoiList(){
+    const box=$('poiList'); box.innerHTML='';
+    if(!pois.length){
+      box.innerHTML='<p class="hint warn">No landmarks available for this location/radius.</p>';
+      $('poiBox').style.display='block';
+      return;
+    }
+    pois.forEach((p,i)=>{
+      const row=document.createElement('label'); row.className='poi';
+      row.innerHTML=`<input type="checkbox" ${p.checked?'checked':''} data-i="${i}">
+        <span class="name">${p.name}</span><span class="km">${p.dist.toFixed(1)} km</span>`;
+      row.querySelector('input').addEventListener('change',e=>{ pois[+e.target.dataset.i].checked=e.target.checked; });
+      box.appendChild(row);
+    });
+    $('poiBox').style.display='block';
+  }
+
+  /* ---------------- Naming / abbreviations ---------------- */
+  function tidyRoad(n){
+    return n.toUpperCase()
+      .replace(/\bROAD\b/g,'RD').replace(/\bSTREET\b/g,'ST').replace(/\bAVENUE\b/g,'AVE')
+      .replace(/\bDRIVE\b/g,'DR').replace(/\bBOULEVARD\b/g,'BLVD').replace(/\bHIGHWAY\b/g,'HWY')
+      .replace(/\bCRESCENT\b/g,'CRES').replace(/\bSAINT\b/g,'ST');
+  }
+  function tidyName(n){
+    let s=n.toUpperCase().replace(/\bSAINT\b/g,'ST');
+    if(s.length>26) s=s.replace(/\bSHOPPING CENTRE\b/,'SHOP CTR').replace(/\bSHOPPING CENTER\b/,'SHOP CTR');
+    if(s.length>26) s=s.replace(/\bINTERNATIONAL\b/,'INTL');
+    return s;
+  }
+  function parseRef(ref){
+    ref=ref.split(';')[0].trim();
+    const m=ref.match(/^([A-Za-z]+)\s*0*(\d+)(.*)$/);
+    if(m) return {letter:m[1].toUpperCase(), num:(m[2]+(m[3]||'')).trim()};
+    return {letter:ref.toUpperCase(), num:''};
+  }
+  function refScore(ref){ const L=ref.trim().charAt(0).toUpperCase(); return L==='N'?3:L==='M'?2:L==='R'?1:0; }
+
+  /* ---------------- Pin text auto-fit ---------------- */
+  function fitOnePin(el){
+    const MAXP=22, MIN=5;
+    const fits=()=> el.scrollHeight<=el.clientHeight+0.5 && el.scrollWidth<=el.clientWidth+0.5;
+    // Wrap ONLY between whole words — never split a word (no break-word / anywhere / hyphens).
+    // If a whole word still doesn't fit, keep shrinking the font (fine 0.5px steps) down to MIN.
+    el.style.whiteSpace='normal';
+    el.style.wordBreak='keep-all';
+    el.style.overflowWrap='normal';
+    el.style.hyphens='none';
+    let size=MAXP; el.style.fontSize=size+'px';
+    while(size>MIN && !fits()){ size-=0.5; el.style.fontSize=size+'px'; }
+  }
+  function fitPins(root){ root.querySelectorAll('.pin-text').forEach(fitOnePin); }
+
+  /* ---------------- Icon builders ---------------- */
+  function landmarkIcon(name){
+    return L.divIcon({className:'',
+      html:`<div class="lbl-wrap"><div class="pin-landmark"><img class="asset" src="Pin.png"><div class="pin-text">${name}</div></div></div>`,
+      iconSize:[112,116], iconAnchor:[56,107]});
+  }
+  function propertyIcon(){
+    return L.divIcon({className:'',
+      html:`<div class="lbl-wrap fixed"><div class="pin-property"><img class="asset" src="AuctionInc.png"></div></div>`,
+      iconSize:[104,108], iconAnchor:[52,100]});
+  }
+  function shieldIcon(ref){
+    const {letter,num}=parseRef(ref);
+    const len=(num||'').length;
+    let inner;
+    if(!num){
+      // Lone letter
+      inner = `<div class="combo" style="font-size:42px">${letter}</div>`;
+    } else if(len===1){
+      // N1, M1, N2, M3 → one large centred line
+      inner = `<div class="combo" style="font-size:35px">${letter}${num}</div>`;
+    } else if(len===2){
+      // M81 → smaller letter above, large number below
+      inner = `<div class="l" style="font-size:27px">${letter}</div>`
+            + `<div class="n" style="font-size:30px">${num}</div>`;
+    } else {
+      // R564 (and longer) → stacked, large number kept off the edges
+      const nSize = len>=4 ? 29 : 36;
+      inner = `<div class="l" style="font-size:29px">${letter}</div>`
+            + `<div class="n" style="font-size:24px">${num}</div>`;
+    }
+    return L.divIcon({className:'',
+      html:`<div class="lbl-wrap"><div class="shield"><img class="asset" src="Main Road.png"><div class="stxt">${inner}</div></div></div>`,
+      iconSize:[92,92], iconAnchor:[46,46]});
+  }
+  function signIcon(name,angle){
+    const fs=23;
+    const tw=measureTextWidth(name, fs) + name.length*0.5;
+    const w=Math.max(120, Math.round(tw)+72);
+    const h=56;
+    return L.divIcon({className:'',
+      html:`<div class="lbl-wrap"><div class="road-sign" style="transform:rotate(${angle}deg);width:${w}px;height:${h}px">`
+          +`<span class="t" style="font-size:${fs}px">${name}</span></div></div>`,
+      iconSize:[w,h], iconAnchor:[w/2,h/2]});
+  }
+
+  /* ---------------- Road point selection ---------------- */
+  function pickPointOnWay(ctx,coords){
+    let best=null,bestScore=-1e9;
+    for(let i=0;i<coords.length;i++){
+      const ll=coords[i];
+      if(!ctx.innerBounds.contains(ll)) continue;
+      const cp=ctx.M.latLngToContainerPoint(ll);
+      let clear=1e9; ctx.placed.forEach(p=>clear=Math.min(clear,cp.distanceTo(p)));
+      const dCenter=cp.distanceTo(ctx.centerCP);
+      const score=clear-dCenter*0.18;
+      if(score>bestScore){ bestScore=score; best={idx:i,latlng:ll}; }
+    }
+    if(!best) return null;
+    const i=best.idx;
+    const a=coords[Math.max(0,i-1)], b=coords[Math.min(coords.length-1,i+1)];
+    best.angle=screenAngle(ctx.M,a,b);
+    return best;
+  }
+
+  /* ---------------- Scene builder ---------------- */
+  function drawRoads(M,group){
+    const rr=L.canvas({padding:0.5});
+    roads.forEach(r=>L.polyline(r.coords,{renderer:rr,color:'#0d3f6b',
+      weight:r.isMain?13:6.5,opacity:1,lineCap:'round',lineJoin:'round',smoothFactor:1.3}).addTo(group));
+    roads.forEach(r=>L.polyline(r.coords,{renderer:rr,color:'#2f90db',
+      weight:r.isMain?8.5:4,opacity:1,lineCap:'round',lineJoin:'round',smoothFactor:1.3}).addTo(group));
+  }
+  function placeShields(ctx){
+    const refGroup={};
+    roads.forEach(r=>{
+      const ref=(r.ref||'').split(';')[0].trim().toUpperCase();
+      if(!/^[NMR]\s*\d/.test(ref)) return;
+      if(!refGroup[ref]||r.len>refGroup[ref].len) refGroup[ref]=r;
+    });
+    Object.entries(refGroup)
+      .map(([ref,r])=>({ref,r}))
+      .sort((a,b)=> (refScore(b.ref)-refScore(a.ref)) || (b.r.len-a.r.len))
+      .slice(0,7)
+      .forEach(({ref,r})=>{
+        const pt=pickPointOnWay(ctx,r.coords);
+        if(!pt) return;
+        L.marker(pt.latlng,{icon:shieldIcon(ref),zIndexOffset:1300}).addTo(ctx.group);
+        ctx.placed.push(ctx.M.latLngToContainerPoint(pt.latlng));
+      });
+  }
+  function placeSigns(ctx){
+    const nameGroup={};
+    roads.forEach(r=>{
+      if(!r.name) return;
+      if(/^[NMR]\s*\d/.test((r.ref||'').toUpperCase())) return;
+      const k=r.name.toLowerCase();
+      if(!nameGroup[k]||r.len>nameGroup[k].len) nameGroup[k]=r;
+    });
+    Object.values(nameGroup).sort((a,b)=>b.len-a.len).slice(0,9).forEach(r=>{
+      const pt=pickPointOnWay(ctx,r.coords);
+      if(!pt) return;
+      const cp=ctx.M.latLngToContainerPoint(pt.latlng);
+      let clear=1e9; ctx.placed.forEach(p=>clear=Math.min(clear,cp.distanceTo(p)));
+      if(clear<78) return;
+      L.marker(pt.latlng,{icon:signIcon(tidyRoad(r.name),pt.angle),zIndexOffset:700}).addTo(ctx.group);
+      ctx.placed.push(cp);
+    });
+  }
+  function buildScene(M,group){
+    group.clearLayers();
+    const ctx={M,group,
+      centerCP:M.latLngToContainerPoint([center.lat,center.lon]),
+      innerBounds:M.getBounds().pad(-0.10),
+      placed:[]};
+
+    drawRoads(M,group);
+
+    L.marker([center.lat,center.lon],{icon:propertyIcon(),zIndexOffset:2000}).addTo(group);
+    ctx.placed.push(ctx.centerCP);
+
+    /* FIX 1: landmark pins now sit ABOVE road signs (zIndexOffset 1000 > sign 700)
+       so they are no longer painted behind green street signs and stay visible. */
+    pois.filter(p=>p.checked).forEach(p=>{
+      L.marker([p.lat,p.lon],{icon:landmarkIcon(tidyName(p.name)),zIndexOffset:1000}).addTo(group);
+      ctx.placed.push(M.latLngToContainerPoint([p.lat,p.lon]));
+    });
+
+    placeShields(ctx);
+    placeSigns(ctx);
+  }
+
+  /* ---------------- Collision resolver ---------------- */
+  function resolveCollisions(root){
+    const wraps=[...root.querySelectorAll('.lbl-wrap')];
+    if(!wraps.length) return;
+    wraps.forEach(w=>{ w.style.transform=''; });
+    const boxes=wraps.map(el=>{
+      const r=el.getBoundingClientRect();
+      return {el,x:r.left+r.width/2,y:r.top+r.height/2,hw:r.width/2,hh:r.height/2,dx:0,dy:0,
+              fixed:el.classList.contains('fixed')};
+    });
+    const PAD=6;
+    for(let it=0;it<80;it++){
+      let moved=false;
+      for(let i=0;i<boxes.length;i++){
+        for(let j=i+1;j<boxes.length;j++){
+          const a=boxes[i],b=boxes[j];
+          const ddx=b.x-a.x, ddy=b.y-a.y;
+          const ox=(a.hw+b.hw+PAD)-Math.abs(ddx);
+          const oy=(a.hh+b.hh+PAD)-Math.abs(ddy);
+          if(ox>0&&oy>0){
+            moved=true;
+            if(ox<oy){
+              const push=ox/2*(ddx<0?-1:1);
+              if(a.fixed&&!b.fixed){b.x+=push*2;b.dx+=push*2;}
+              else if(b.fixed&&!a.fixed){a.x-=push*2;a.dx-=push*2;}
+              else if(!a.fixed&&!b.fixed){a.x-=push;a.dx-=push;b.x+=push;b.dx+=push;}
+            }else{
+              const push=oy/2*(ddy<0?-1:1);
+              if(a.fixed&&!b.fixed){b.y+=push*2;b.dy+=push*2;}
+              else if(b.fixed&&!a.fixed){a.y-=push*2;a.dy-=push*2;}
+              else if(!a.fixed&&!b.fixed){a.y-=push;a.dy-=push;b.y+=push;b.dy+=push;}
+            }
+          }
+        }
+      }
+      if(!moved) break;
+    }
+    boxes.forEach(b=>{ if(b.dx||b.dy) b.el.style.transform=`translate(${Math.round(b.dx)}px,${Math.round(b.dy)}px)`; });
+  }
+  map.on('moveend zoomend',()=>{ if(center) setTimeout(()=>resolveCollisions(map.getContainer()),60); });
+
+  /* ---------------- Zoom composition ---------------- */
+  function computeZoom(M){
+    if($('zoom').value!=='auto') return +$('zoom').value;
+    const checked=pois.filter(p=>p.checked).slice(0,8);
+    const pts=[[center.lat,center.lon]];
+    checked.forEach(p=>pts.push([p.lat,p.lon]));
+    let z=15;
+    if(pts.length>1){
+      const b=L.latLngBounds(pts).pad(0.30);
+      z=M.getBoundsZoom(b,false,L.point(70,70));
+    }
+    return Math.max(13,Math.min(16,Math.round(z)));
+  }
+
+  /* ---------------- Preview render ---------------- */
+  function drawScene(){
+    currentZoom=computeZoom(map);
+    map.setView([center.lat,center.lon],currentZoom,{animate:false});
+    buildScene(map,layerGroup);
+    $('fbPlace').textContent=($('placeName').value||'SUBURB').toUpperCase();
+    $('fbCat').textContent  =($('category').value||'RESIDENTIAL').toUpperCase();
+    $('footer').style.display='flex';
+    const root=map.getContainer();
+    fitPins(root);
+    setTimeout(()=>{fitPins(root);resolveCollisions(root);},150);
+    setTimeout(()=>{fitPins(root);resolveCollisions(root);},600);
+  }
+
+  /* ---------------- Fetch + render pipeline ---------------- */
+  async function runAfterGeo(){
+    const radius=+$('radius').value;
+    const lat=center.lat, lon=center.lon;
+
+    setStatus('Fetching map data (roads, landmarks, arterials in parallel)…');
+    setDebug('Requesting Overpass data…');
+
+    const t0=performance.now();
+
+    // All three requests in parallel, each cached for the session.
+    const [roadRes, poiRes, artRes] = await Promise.allSettled([
+      cached('roads',lat,lon,radius, ()=>fetchRoads(lat,lon,radius)),
+      cached('pois', lat,lon,radius, ()=>fetchPoisSmart(lat,lon,radius)),
+      cached('art',  lat,lon,radius, ()=>fetchArterials(lat,lon,radius))
+    ]);
+
+    const elapsed=((performance.now()-t0)/1000).toFixed(1);
+
+    // ---- Roads (copy so arterial merge never mutates the cached array) ----
+    roads = roadRes.status==='fulfilled' ? roadRes.value.slice() : [];
+    if(artRes.status==='fulfilled') mergeArterials(artRes.value);
+
+    // ---- POIs ----
+    const warnings=[];
+    const dbg=[];
+
+    if(poiRes.status==='fulfilled'){
+      const info=poiRes.value;
+      pois = rankPois(info.list).map((p,i)=>({...p,checked:i<9}));
+      dbg.push(
+        `Landmarks: ${info.raw} raw → ${info.list.length} usable → ${pois.length} ranked`
+        + (info.expanded ? `  (⚠ expanded search: r=${info.radius}m, broad categories)` : '')
+      );
+      const filt=[];
+      if(info.banned) filt.push(`${info.banned} banned`);
+      if(info.noName) filt.push(`${info.noName} unnamed`);
+      if(info.noGeo)  filt.push(`${info.noGeo} no-geo`);
+      if(info.dup)    filt.push(`${info.dup} duplicate`);
+      if(filt.length) dbg.push('Filtered out: '+filt.join(', '));
+      if(info.list.length===0) warnings.push('0 landmarks found (try a larger radius)');
+    }else{
+      pois=[];
+      warnings.push('landmarks FAILED');
+      dbg.push('Landmarks ERROR: '+(poiRes.reason&&poiRes.reason.message||'unknown'));
+      console.error('POI fetch failed:', poiRes.reason);
+    }
+
+    if(roadRes.status!=='fulfilled'){
+      warnings.push('roads FAILED');
+      dbg.push('Roads ERROR: '+(roadRes.reason&&roadRes.reason.message||'unknown'));
+      console.error('Roads fetch failed:', roadRes.reason);
+    }
+    if(artRes.status!=='fulfilled'){
+      warnings.push('arterials unavailable');
+      dbg.push('Arterials ERROR: '+(artRes.reason&&artRes.reason.message||'unknown'));
+    }
+
+    renderPoiList();
+    dirty=false;
+    drawScene();
+
+    const roadCount=roads.length;
+    const poiCount=pois.filter(p=>p.checked).length;
+
+    setStatus(`Done in ${elapsed}s — ${roadCount} road segments, ${poiCount} landmarks shown`
+      + (warnings.length ? '  ⚠ '+warnings.join(', ') : '.'));
+    setDebug(dbg.join('\n'), warnings.length>0);
+  }
+
+  /* ---------------- Generate button ---------------- */
+  $('go').addEventListener('click', async ()=>{
+    const q=$('addr').value.trim();
+    if(!q){ setStatus('Enter an address or coordinates first.'); return; }
+    $('go').disabled=true;
+    try{
+      // Fast path: only checkbox ticks changed → redraw without refetching.
+      if(!dirty && center){ drawScene(); $('go').disabled=false; return; }
+
+      const coords=parseCoords(q);
+      if(coords){
+        // COORDINATES: preserved exactly — used directly, no geocoding.
+        center={lat:coords.lat,lon:coords.lon};
+        setResolved(`Coordinates: ${coords.lat.toFixed(5)}, ${coords.lon.toFixed(5)}`);
+        $('geoResults').innerHTML='';
+        dirty=true;
+        await runAfterGeo();
+      } else {
+        setStatus('Searching address (South Africa only)…');
+        const list=await geocodeZA(q);
+        if(!list.length){ setStatus('Address not found in South Africa. Add suburb/city and try again.'); $('go').disabled=false; return; }
+        const ranked=rankCandidates(list,q);
+        const best=ranked[0];
+        const confident = best.score>=120 || list.length===1;
+        center={lat:+best.lat,lon:+best.lon};
+        if(confident){
+          setResolved(best.display_name);
+          $('geoResults').innerHTML='';
+          dirty=true;
+          await runAfterGeo();
+        } else {
+          setResolved('Best guess: '+best.display_name);
+          showCandidates(ranked.slice(0,6));
+          setStatus('Low confidence — pick the exact match below (best guess shown on the map).');
+          dirty=true;
+          await runAfterGeo();
+        }
+      }
+    }catch(e){
+      console.error(e);
+      setStatus('Error: '+e.message);
+    }finally{
+      $('go').disabled=false;
+    }
+  });
+
+  /* ---------------- Input listeners ---------------- */
+  $('addr').addEventListener('input',()=>{ dirty=true; });
+  $('radius').addEventListener('change',()=>{ dirty=true; });
+  $('zoom').addEventListener('change',()=>{ if(center && !dirty) drawScene(); });
+
+  /* ---------------- Tile readiness ---------------- */
+  function waitTiles(tl, timeout=12000){
+    return new Promise(resolve=>{
+      let done=false;
+      const finish=()=>{ if(done) return; done=true; tl.off('load',finish); resolve(); };
+      tl.on('load', finish);          // Leaflet fires 'load' when all visible tiles are in
+      setTimeout(finish, timeout);    // hard cap so export never hangs
+    });
+  }
+
+  /* ---------------- Build a 1620×900 export stage ---------------- */
+  async function buildExportStage(includeTiles){
+    const div=document.createElement('div');
+    div.id='exportStage';
+    div.style.cssText='position:fixed;top:-10000px;left:-10000px;width:1620px;height:900px;overflow:hidden;'
+      +'background:#0b1f33;z-index:-1;pointer-events:none;';
+    document.body.appendChild(div);
+
+    const exMap=L.map(div,{zoomControl:false,attributionControl:false,preferCanvas:true,
+      fadeAnimation:false,zoomAnimation:false,markerZoomAnimation:false,inertia:false,
+      dragging:false,scrollWheelZoom:false,doubleClickZoom:false,boxZoom:false,keyboard:false,touchZoom:false});
+
+    let tl=null;
+    if(includeTiles){
+      tl=L.tileLayer(TILE_URL,{maxZoom:19,crossOrigin:'anonymous',keepBuffer:8}).addTo(exMap);
+    }
+
+    await new Promise(r=>exMap.whenReady(r));
+    exMap.invalidateSize();
+    const z=computeZoom(exMap);
+    exMap.setView([center.lat,center.lon],z,{animate:false});
+
+    const exGroup=L.layerGroup().addTo(exMap);
+    buildScene(exMap,exGroup);
+
+    // Footer banner inside the export stage
+    const fb=document.createElement('div'); fb.className='footer-banner';
+    fb.innerHTML=`<div class="place">${($('placeName').value||'SUBURB').toUpperCase()}</div>`
+               + `<div class="cat">${($('category').value||'RESIDENTIAL').toUpperCase()}</div>`;
+    div.appendChild(fb);
+
+    // Ensure fonts → tiles → PNG assets are all painted before capture
+    if(document.fonts && document.fonts.ready){ try{ await document.fonts.ready; }catch(e){} }
+    if(tl) await waitTiles(tl);
+    await waitImages(div);
+    fitPins(div); resolveCollisions(div);
+    await sleep(500);
+    fitPins(div); resolveCollisions(div);
+
+    return {div, exMap, tl};
+  }
+
+  /* ---------------- PNG export (4050×2250) ----------------
+     Uses dom-to-image-more instead of html2canvas for faster, lighter exports.
+     The design remains 1620×900 internally and is rasterised at 2.5× for
+     print-quality output without creating an excessively large PNG. */
+  async function captureToDataURL(div){
+    const SCALE = 2.5;
+    const WIDTH = 1620;
+    const HEIGHT = 900;
+
+    const blob = await domtoimage.toBlob(div, {
+      width: WIDTH,
+      height: HEIGHT,
+      bgcolor: '#0b1f33',
+      cacheBust: true,
+      style: {
+        transform: `scale(${SCALE})`,
+        transformOrigin: 'top left',
+        width: WIDTH + 'px',
+        height: HEIGHT + 'px'
+      },
+      canvasWidth: WIDTH * SCALE,
+      canvasHeight: HEIGHT * SCALE,
+      filter: node => !node.classList || !node.classList.contains('leaflet-control-container')
+    });
+
+    if(!blob) throw new Error('PNG blob creation failed');
+    const dataURL = URL.createObjectURL(blob);
+    return { dataURL, width:WIDTH*SCALE, height:HEIGHT*SCALE };
+  }
+
+  $('exportBtn').addEventListener('click', async ()=>{
+    if(!center){ setStatus('Generate a map first.'); return; }
+    $('exportBtn').disabled=true;
+
+    let stage=null;
+    const cleanup=()=>{ if(stage){ try{ stage.exMap.remove(); }catch(e){} try{ stage.div.remove(); }catch(e){} stage=null; } };
+
+    try{
+      let result=null;
+
+      // ---------- Attempt 1: full export WITH satellite tiles ----------
+      setStatus('Building 1620×900 design (with satellite imagery)…');
+      stage = await buildExportStage(true);
+
+      setStatus('Rendering 4050×2250 PNG…');
+      try{
+        result = await captureToDataURL(stage.div);   // render + toDataURL together
+      }catch(tileErr){
+        // Tiles tainted the canvas (CORS) OR html2canvas failed → fall back.
+        console.warn('Tile export failed, falling back to tile-less mode:', tileErr);
+        cleanup();
+
+        setStatus('Satellite tiles blocked export (CORS) — rendering clean fallback (roads, pins, signs, footer)…');
+        stage = await buildExportStage(false);        // dark background, no tiles
+        result = await captureToDataURL(stage.div);
+      }
+
+      const a=document.createElement('a');
+      a.download=(($('placeName').value||'map')+'_'+($('category').value||''))
+        .replace(/\s+/g,'_').replace(/_+$/,'')+'.png';
+      a.href=result.dataURL;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(result.dataURL);
+      setStatus(`PNG exported at ${result.width}×${result.height}.`);
+
+    }catch(e){
+      console.error(e);
+      setStatus('Export failed: '+e.message
+        +'  — Tip: serve this file from a local web server (http://localhost), NOT file://, '
+        +'so the satellite tiles and PNG assets stay CORS-clean for canvas export.');
+    }finally{
+      cleanup();
+      $('exportBtn').disabled=false;
+    }
+  });
+  </script>
+  </body>
+  </html>
